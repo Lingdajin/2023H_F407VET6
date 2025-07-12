@@ -190,7 +190,9 @@ int main(void)
       Dac1ConvEnd = 0;	//清除DAC1单周期完成标志
       while(Dac1ConvEnd == 0) //等待DAC1单周期完成标志，即到达0相位点
         ;
-      dac1_phase_adjust();
+      if(!phase_adjust_flag){
+        dac1_phase_adjust();
+      }
       // HAL_Delay(1);
 //	HAL_GPIO_WritePin(TST_GPIO_Port, TST_Pin, GPIO_PIN_SET);	//dac1相位校正后管脚置1
       Dac2ConvEnd = 0;	//清除DAC2单周期完成标志
@@ -969,13 +971,13 @@ void dac1_phase_adjust(){
 	  temp_short = temp_double + 0.5;//转换为整数的延迟时间，避免舍入误差
 
 	  uint32_t temp_int = TIM2->CNT;
-    if(phase_adjust_flag){
-      double temp_double_2 = 4200*(dac_phase + 215) / (180*((double)frq[1] + 2)) + temp_double;
-      uint16_t temp_short_2 = temp_double_2 + 0.5;//转换为整数的延迟时间，避免舍入误差
-      temp_int = temp_int + 4294967295 - temp_short_2;
-    }else{
+    // if(phase_adjust_flag){
+    //   double temp_double_2 = 4200*(dac_phase + 215) / (180*((double)frq[1] + 2)) + temp_double;
+    //   uint16_t temp_short_2 = temp_double_2 + 0.5;//转换为整数的延迟时间，避免舍入误差
+    //   temp_int = temp_int + 4294967295 - temp_short_2;
+    // }else{
       temp_int = temp_int + 4294967295 - temp_short;
-    }
+    // }
 	  
 	  TIM2->CNT = temp_int;
 //    TIM6->CNT = 65535 - temp_short;
@@ -985,6 +987,11 @@ void dac1_phase_adjust(){
 void dac2_phase_adjust(){
     //计算dac2需要延时的周期数
 //	  HAL_TIM_Base_Stop(&htim4);	//停止dac2传输定时器
+    if(phase_adjust_flag){
+      //重启dac1，强制其为0相位
+      HAL_DAC_Stop_DMA(&hdac, DAC_CHANNEL_1); //停止dac1的DMA传输
+      HAL_DAC_Start_DMA(&hdac, DAC_CHANNEL_1, (uint32_t*)dac1_buffer, (200), DAC_ALIGN_12B_R);
+    }
     HAL_ADC_Start_DMA(&hadc2, (uint32_t *)adc_buffer, SAMPLE_SIZE); //让ADC1去采集200个数，存放到adc_buff数组里
     while (!AdcConvEnd)                                   //等待转换完毕
     	;
@@ -1005,10 +1012,16 @@ void dac2_phase_adjust(){
 	  temp_short = temp_double + 0.5;//转换为整数的延迟时间，避免舍入误差
 	  uint32_t temp_int = TIM4->CNT;
 	  temp_int = temp_int + 4294967295 - temp_short;
-	  TIM4->CNT = temp_int;
-    // if(phase_adjust_flag){
-    //   temp_double_dac2 = temp_double; //保存dac2的延时
-    // } 
+    TIM4->CNT = temp_int;
+    if(phase_adjust_flag){ //如果需要进行相位调整，并且还没有进行过相位调整
+      // temp_double_dac2 = temp_double; //保存dac2的延时
+      double temp_double_2 = (4200*(dac_phase - 30) / (180*((double)frq[1] + 2))) + temp_double;
+      uint16_t temp_short_2 = temp_double_2 + 0.5;//转换为整数的延迟时间，避免舍入误差
+      uint32_t temp_int_2 = TIM2->CNT;
+      temp_int_2 = temp_int_2 + 4294967295 - temp_short_2;
+      TIM2->CNT = temp_int_2; //将dac1的延时也进行相应的调整
+      phase_adjust_already_flag =1; //标记已经进行过相位调整
+    } 
 //    TIM7->CNT = 65535 - temp_short;
 //    HAL_TIM_Base_Start_IT(&htim7);	//开启延时控制定时器
 }
